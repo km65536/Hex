@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Hex Game (Maximized Board & Dijkstra AI)</title>
+    <title>Hex Game (Alpha-Beta AI)</title>
     <style>
         body {
             font-family: 'Helvetica Neue', Arial, sans-serif;
@@ -38,14 +38,11 @@
             cursor: pointer;
             margin: 5px auto;
             transition: background-color 0.5s ease;
-            
-            /* スマホの横幅ギリギリまで拡大させる設定 */
             width: 98vw;
-            max-width: 900px; /* PC閲覧時の極端な巨大化を防ぐ */
+            max-width: 900px;
             height: auto;
             max-height: 75vh;
             object-fit: contain;
-            
             touch-action: none;
             -webkit-tap-highlight-color: transparent;
         }
@@ -158,17 +155,14 @@
         const btn2P = document.getElementById('btn2P');
 
         const BOARD_SIZE = 11;
-        // 六角形の描画サイズを劇的に大きく設定（内部解像度を高める）
         const HEX_SIZE = 48; 
         
-        // 余白を極限まで削ぎ落とし、盤面全体がぴったり収まるキャンバスサイズを自動計算
         const canvasWidth = Math.sqrt(3) * HEX_SIZE * (BOARD_SIZE + (BOARD_SIZE - 1) / 2) + (HEX_SIZE * Math.sqrt(3)) + 10;
         const canvasHeight = (HEX_SIZE * 3 / 2 * (BOARD_SIZE - 1)) + (HEX_SIZE * 3) + 10;
         
         canvas.width = canvasWidth;
         canvas.height = canvasHeight;
 
-        // キャンバスの左上からギリギリの位置から描画を始めるためのオフセット
         const OFFSET_X = HEX_SIZE * Math.sqrt(3) / 2 + 5;
         const OFFSET_Y = HEX_SIZE + 5;
 
@@ -433,7 +427,7 @@
                 statusDiv.textContent = "赤の番です";
                 statusDiv.className = "glass-panel red-turn";
             } else {
-                statusDiv.textContent = aiThinking ? "AIが経路を計算中..." : "青の番です";
+                statusDiv.textContent = aiThinking ? "AIが思考中..." : "青の番です";
                 statusDiv.className = "glass-panel blue-turn";
             }
         }
@@ -468,24 +462,24 @@
         }
 
         // ==========================================
-        // 激辛AIロジック（ダイクストラ / 0-1 BFS 最短経路探索）
+        // 深さ優先アルファベータ探索 AI
         // ==========================================
 
-        function getDistances(player, border) {
+        function getDistancesForBoard(tempBoard, player, border) {
             let dist = new Int32Array(BOARD_SIZE * BOARD_SIZE).fill(9999);
             let deque = [];
 
             if (player === 1) { 
                 if (border === 'TOP') {
                     for (let q = 0; q < BOARD_SIZE; q++) {
-                        let st = board[q][0];
+                        let st = tempBoard[q][0];
                         let idx = q * BOARD_SIZE + 0;
                         if (st === 1) { dist[idx] = 0; deque.unshift({q, r: 0}); }
                         else if (st === 0) { dist[idx] = 1; deque.push({q, r: 0}); }
                     }
                 } else if (border === 'BOTTOM') {
                     for (let q = 0; q < BOARD_SIZE; q++) {
-                        let st = board[q][BOARD_SIZE - 1];
+                        let st = tempBoard[q][BOARD_SIZE - 1];
                         let idx = q * BOARD_SIZE + (BOARD_SIZE - 1);
                         if (st === 1) { dist[idx] = 0; deque.unshift({q, r: BOARD_SIZE - 1}); }
                         else if (st === 0) { dist[idx] = 1; deque.push({q, r: BOARD_SIZE - 1}); }
@@ -494,14 +488,14 @@
             } else { 
                 if (border === 'LEFT') {
                     for (let r = 0; r < BOARD_SIZE; r++) {
-                        let st = board[0][r];
+                        let st = tempBoard[0][r];
                         let idx = 0 * BOARD_SIZE + r;
                         if (st === 2) { dist[idx] = 0; deque.unshift({q: 0, r}); }
                         else if (st === 0) { dist[idx] = 1; deque.push({q: 0, r}); }
                     }
                 } else if (border === 'RIGHT') {
                     for (let r = 0; r < BOARD_SIZE; r++) {
-                        let st = board[BOARD_SIZE - 1][r];
+                        let st = tempBoard[BOARD_SIZE - 1][r];
                         let idx = (BOARD_SIZE - 1) * BOARD_SIZE + r;
                         if (st === 2) { dist[idx] = 0; deque.unshift({q: BOARD_SIZE - 1, r}); }
                         else if (st === 0) { dist[idx] = 1; deque.push({q: BOARD_SIZE - 1, r}); }
@@ -513,75 +507,169 @@
                 let {q, r} = deque.shift();
                 let d = dist[q * BOARD_SIZE + r];
 
-                let neighbors = getNeighbors(q, r);
+                let neighbors = [
+                    { q: q + 1, r: r }, { q: q, r: r + 1 }, { q: q - 1, r: r + 1 },
+                    { q: q - 1, r: r }, { q: q, r: r - 1 }, { q: q + 1, r: r - 1 }
+                ];
+                
                 for (let n of neighbors) {
-                    let st = board[n.q][n.r];
-                    if (st === (player === 1 ? 2 : 1)) continue; 
-                    
-                    let cost = (st === player) ? 0 : 1;
-                    let next_dist = d + cost;
-                    let nIdx = n.q * BOARD_SIZE + n.r;
-                    
-                    if (next_dist < dist[nIdx]) {
-                        dist[nIdx] = next_dist;
-                        if (cost === 0) deque.unshift(n);
-                        else deque.push(n);
+                    if (n.q >= 0 && n.q < BOARD_SIZE && n.r >= 0 && n.r < BOARD_SIZE) {
+                        let st = tempBoard[n.q][n.r];
+                        if (st === (player === 1 ? 2 : 1)) continue; 
+                        
+                        let cost = (st === player) ? 0 : 1;
+                        let next_dist = d + cost;
+                        let nIdx = n.q * BOARD_SIZE + n.r;
+                        
+                        if (next_dist < dist[nIdx]) {
+                            dist[nIdx] = next_dist;
+                            if (cost === 0) deque.unshift(n);
+                            else deque.push(n);
+                        }
                     }
                 }
             }
             return dist;
         }
 
-        function aiMove() {
-            if (gameOver) return;
+        // 盤面の評価関数
+        function evaluateBoardState(tempBoard) {
+            let dist_T = getDistancesForBoard(tempBoard, 1, 'TOP');
+            let dist_B = getDistancesForBoard(tempBoard, 1, 'BOTTOM');
+            let dist_L = getDistancesForBoard(tempBoard, 2, 'LEFT');
+            let dist_R = getDistancesForBoard(tempBoard, 2, 'RIGHT');
 
-            let dist_T = getDistances(1, 'TOP');
-            let dist_B = getDistances(1, 'BOTTOM');
-            let dist_L = getDistances(2, 'LEFT');
-            let dist_R = getDistances(2, 'RIGHT');
-
-            let bestScore = -Infinity;
-            let bestMoves = [];
+            let minCostRed = 9999;
+            let minCostBlue = 9999;
 
             for (let q = 0; q < BOARD_SIZE; q++) {
                 for (let r = 0; r < BOARD_SIZE; r++) {
-                    if (board[q][r] === 0) {
-                        let idx = q * BOARD_SIZE + r;
-                        
-                        let cost_red = dist_T[idx] + dist_B[idx] - 1;
-                        let cost_blue = dist_L[idx] + dist_R[idx] - 1;
-
-                        let score = 0;
-
-                        if (cost_blue === 1) {
-                            score += 1000000; 
-                        }
-                        else if (cost_red === 1) {
-                            score += 500000;
-                        } 
-                        else {
-                            score += Math.pow(2, 12 - cost_blue) * 1.5; 
-                            score += Math.pow(2, 12 - cost_red) * 1.0;  
-
-                            score += (10 - (Math.abs(q - 5) + Math.abs(r - 5))) * 10;
-                        }
-
-                        score += Math.random() * 5;
-
-                        if (score > bestScore) {
-                            bestScore = score;
-                            bestMoves = [{q, r}];
-                        } else if (Math.abs(score - bestScore) < 0.1) {
-                            bestMoves.push({q, r});
-                        }
+                    let idx = q * BOARD_SIZE + r;
+                    let st = tempBoard[q][r];
+                    
+                    if (st !== 2) {
+                        let cred = dist_T[idx] + dist_B[idx] - (st === 1 ? 1 : 1);
+                        if (cred < minCostRed) minCostRed = cred;
+                    }
+                    if (st !== 1) {
+                        let cblue = dist_L[idx] + dist_R[idx] - (st === 2 ? 1 : 1);
+                        if (cblue < minCostBlue) minCostBlue = cblue;
                     }
                 }
             }
 
-            const move = bestMoves[Math.floor(Math.random() * bestMoves.length)];
+            if (minCostBlue <= 0) return 100000;  // 青の勝ち
+            if (minCostRed <= 0) return -100000;  // 赤の勝ち
+
+            // 青(AI)は自分のコストを低く、相手のコストを高くしたい
+            return (minCostRed * 20) - (minCostBlue * 25);
+        }
+
+        // 1手読みによる有望な手のリストアップ
+        function getTopCandidates(tempBoard, isMaximizing, maxCount) {
+            let candidates = [];
+            let dist_T = getDistancesForBoard(tempBoard, 1, 'TOP');
+            let dist_B = getDistancesForBoard(tempBoard, 1, 'BOTTOM');
+            let dist_L = getDistancesForBoard(tempBoard, 2, 'LEFT');
+            let dist_R = getDistancesForBoard(tempBoard, 2, 'RIGHT');
+
+            for (let q = 0; q < BOARD_SIZE; q++) {
+                for (let r = 0; r < BOARD_SIZE; r++) {
+                    if (tempBoard[q][r] === 0) {
+                        let idx = q * BOARD_SIZE + r;
+                        let cost_red = dist_T[idx] + dist_B[idx] - 1;
+                        let cost_blue = dist_L[idx] + dist_R[idx] - 1;
+
+                        let score = 0;
+                        score += Math.pow(2, 12 - cost_blue) * 1.5;
+                        score += Math.pow(2, 12 - cost_red) * 1.0;
+                        score += (10 - (Math.abs(q - 5) + Math.abs(r - 5))) * 5;
+
+                        candidates.push({q, r, score});
+                    }
+                }
+            }
             
+            candidates.sort((a, b) => b.score - a.score);
+            return candidates.slice(0, maxCount);
+        }
+
+        // ミニマックス法（アルファベータ枝刈り）
+        function minimax(tempBoard, depth, alpha, beta, isMaximizing) {
+            let currentEval = evaluateBoardState(tempBoard);
+            if (currentEval >= 90000 || currentEval <= -90000 || depth === 0) {
+                return currentEval;
+            }
+
+            // 深読みする手数を絞る（パフォーマンス維持のため上位10手のみ探索）
+            let candidates = getTopCandidates(tempBoard, isMaximizing, 10);
+
+            if (isMaximizing) {
+                let maxEval = -Infinity;
+                for (let move of candidates) {
+                    tempBoard[move.q][move.r] = 2; // 青
+                    let evalResult = minimax(tempBoard, depth - 1, alpha, beta, false);
+                    tempBoard[move.q][move.r] = 0; // 元に戻す
+                    
+                    maxEval = Math.max(maxEval, evalResult);
+                    alpha = Math.max(alpha, evalResult);
+                    if (beta <= alpha) break;
+                }
+                return maxEval;
+            } else {
+                let minEval = Infinity;
+                for (let move of candidates) {
+                    tempBoard[move.q][move.r] = 1; // 赤
+                    let evalResult = minimax(tempBoard, depth - 1, alpha, beta, true);
+                    tempBoard[move.q][move.r] = 0; // 元に戻す
+                    
+                    minEval = Math.min(minEval, evalResult);
+                    beta = Math.min(beta, evalResult);
+                    if (beta <= alpha) break;
+                }
+                return minEval;
+            }
+        }
+
+        function aiMove() {
+            if (gameOver) return;
+
+            // 1手目は必ず中央付近を狙う（計算効率化のため）
+            let stoneCount = 0;
+            for (let q = 0; q < BOARD_SIZE; q++) {
+                for (let r = 0; r < BOARD_SIZE; r++) {
+                    if (board[q][r] !== 0) stoneCount++;
+                }
+            }
+            if (stoneCount <= 1 && board[5][5] === 0) {
+                aiThinking = false;
+                placeStone(5, 5, 2);
+                return;
+            }
+
+            let candidates = getTopCandidates(board, true, 12);
+            let bestScore = -Infinity;
+            let bestMove = null;
+
+            // 探索深さ: 3 (自分 -> 相手 -> 自分)
+            const DEPTH = 3; 
+
+            for (let move of candidates) {
+                board[move.q][move.r] = 2;
+                let score = minimax(board, DEPTH - 1, -Infinity, Infinity, false);
+                board[move.q][move.r] = 0;
+
+                // ランダム性を少し加えて同じ進行を防ぐ
+                score += Math.random() * 5;
+
+                if (score > bestScore) {
+                    bestScore = score;
+                    bestMove = move;
+                }
+            }
+
             aiThinking = false;
-            if (move) placeStone(move.q, move.r, 2);
+            if (bestMove) placeStone(bestMove.q, bestMove.r, 2);
         }
         // ==========================================
 
