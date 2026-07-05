@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Hex Game (Dijkstra AI)</title>
+    <title>Hex Game (Maximized Board & Dijkstra AI)</title>
     <style>
         body {
             font-family: 'Helvetica Neue', Arial, sans-serif;
@@ -18,28 +18,34 @@
             justify-content: center;
             min-height: 100vh;
             color: #e5e7eb;
+            overflow-x: hidden;
         }
         h1 {
             color: #f9fafb;
-            margin-top: 10px;
-            margin-bottom: 10px;
+            margin-top: 5px;
+            margin-bottom: 5px;
             text-shadow: 0 2px 4px rgba(0,0,0,0.5);
-            font-size: 2rem;
+            font-size: 1.6rem;
             letter-spacing: 2px;
         }
         canvas {
             background-color: rgba(17, 24, 39, 0.4);
             backdrop-filter: blur(10px);
             -webkit-backdrop-filter: blur(10px);
-            border-radius: 12px;
+            border-radius: 8px;
             box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.5);
             border: 1px solid rgba(255, 255, 255, 0.1);
             cursor: pointer;
-            margin: 10px auto;
+            margin: 5px auto;
             transition: background-color 0.5s ease;
-            width: 100%;
-            max-width: 850px;
+            
+            /* スマホの横幅ギリギリまで拡大させる設定 */
+            width: 98vw;
+            max-width: 900px; /* PC閲覧時の極端な巨大化を防ぐ */
             height: auto;
+            max-height: 75vh;
+            object-fit: contain;
+            
             touch-action: none;
             -webkit-tap-highlight-color: transparent;
         }
@@ -52,10 +58,10 @@
             border-radius: 8px;
         }
         #status {
-            font-size: 20px;
+            font-size: 16px;
             font-weight: bold;
-            margin: 5px 0 10px 0;
-            padding: 10px 20px;
+            margin: 5px 0;
+            padding: 8px 16px;
             display: inline-block;
             transition: all 0.3s ease;
         }
@@ -68,8 +74,8 @@
             text-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
         }
         .winner-text {
-            font-size: 24px !important;
-            padding: 15px 30px !important;
+            font-size: 20px !important;
+            padding: 12px 24px !important;
             background: rgba(255, 215, 0, 0.2) !important;
             color: #ffd700 !important;
             border: 2px solid #ffd700;
@@ -82,15 +88,15 @@
         }
         .controls {
             display: flex;
-            gap: 10px;
-            margin-top: 10px;
+            gap: 8px;
+            margin-top: 5px;
             flex-wrap: wrap;
             justify-content: center;
         }
         button {
-            font-size: 15px;
+            font-size: 13px;
             font-weight: bold;
-            padding: 10px 24px;
+            padding: 8px 16px;
             cursor: pointer;
             background: rgba(55, 65, 81, 0.8);
             color: #e5e7eb;
@@ -117,12 +123,12 @@
             background: rgba(16, 185, 129, 0.9);
         }
         .instructions {
-            margin-top: 15px;
-            margin-bottom: 15px;
+            margin-top: 10px;
+            margin-bottom: 10px;
             color: #d1d5db;
-            font-size: 13px;
-            padding: 12px 20px;
-            max-width: 90vw;
+            font-size: 12px;
+            padding: 8px 12px;
+            max-width: 95vw;
             line-height: 1.4;
         }
     </style>
@@ -130,9 +136,9 @@
 <body>
 
     <h1>Hex</h1>
-    <div id="status" class="glass-panel red-turn">赤の番</div>
+    <div id="status" class="glass-panel red-turn">赤の番です</div>
     
-    <canvas id="hexCanvas" width="850" height="600"></canvas>
+    <canvas id="hexCanvas"></canvas>
     
     <div class="controls">
         <button id="btn1P" class="active-mode" onclick="setMode('1P')">1人プレイ (vs AI)</button>
@@ -141,7 +147,7 @@
     </div>
 
     <div class="instructions glass-panel">
-        <p><strong>ルール:</strong> 先手（赤）は「上辺と下辺」を、後手（青）は「左辺と右辺」を繋ぎます。</p>
+        <p><strong>ルール:</strong> 先手（赤）は「上下」、後手（青）は「左右」を繋ぎます。</p>
     </div>
 
     <script>
@@ -152,10 +158,19 @@
         const btn2P = document.getElementById('btn2P');
 
         const BOARD_SIZE = 11;
-        const HEX_SIZE = 22; 
+        // 六角形の描画サイズを劇的に大きく設定（内部解像度を高める）
+        const HEX_SIZE = 48; 
         
-        const OFFSET_X = (canvas.width - (Math.sqrt(3) * HEX_SIZE * (BOARD_SIZE + (BOARD_SIZE - 1) / 2))) / 2 + (HEX_SIZE * Math.sqrt(3) / 2);
-        const OFFSET_Y = (canvas.height - (HEX_SIZE * 3 / 2 * (BOARD_SIZE - 1) + HEX_SIZE * 2)) / 2 + HEX_SIZE;
+        // 余白を極限まで削ぎ落とし、盤面全体がぴったり収まるキャンバスサイズを自動計算
+        const canvasWidth = Math.sqrt(3) * HEX_SIZE * (BOARD_SIZE + (BOARD_SIZE - 1) / 2) + (HEX_SIZE * Math.sqrt(3)) + 10;
+        const canvasHeight = (HEX_SIZE * 3 / 2 * (BOARD_SIZE - 1)) + (HEX_SIZE * 3) + 10;
+        
+        canvas.width = canvasWidth;
+        canvas.height = canvasHeight;
+
+        // キャンバスの左上からギリギリの位置から描画を始めるためのオフセット
+        const OFFSET_X = HEX_SIZE * Math.sqrt(3) / 2 + 5;
+        const OFFSET_Y = HEX_SIZE + 5;
 
         let board = [];
         let currentPlayer = 1; 
@@ -244,7 +259,7 @@
             ctx.fill();
             
             ctx.strokeStyle = strokeColor;
-            ctx.lineWidth = 1;
+            ctx.lineWidth = 1.5;
             ctx.stroke();
         }
 
@@ -262,16 +277,16 @@
             }
             ctx.closePath();
             ctx.strokeStyle = '#FFD700';
-            ctx.lineWidth = 4;
+            ctx.lineWidth = 7;
             ctx.stroke();
-            ctx.shadowBlur = 15;
+            ctx.shadowBlur = 20;
             ctx.shadowColor = '#FFD700';
             ctx.stroke();
             ctx.shadowBlur = 0; 
         }
 
         function drawTileEdges(x, y, edgeIndices, strokeColor) {
-            ctx.lineWidth = 6;
+            ctx.lineWidth = 10;
             ctx.strokeStyle = strokeColor;
             ctx.lineCap = "round";
 
@@ -324,8 +339,8 @@
 
                     const redBorders = [];
                     const blueBorders = [];
-                    const redColor = 'rgba(255, 50, 50, 0.7)';
-                    const blueColor = 'rgba(50, 150, 255, 0.7)';
+                    const redColor = 'rgba(255, 50, 50, 0.8)';
+                    const blueColor = 'rgba(50, 150, 255, 0.8)';
 
                     if (r === 0) redBorders.push(4, 5); 
                     else if (r === BOARD_SIZE - 1) redBorders.push(1, 2); 
@@ -415,10 +430,10 @@
         function updateStatus() {
             if (gameOver) return;
             if (currentPlayer === 1) {
-                statusDiv.textContent = "赤の番";
+                statusDiv.textContent = "赤の番です";
                 statusDiv.className = "glass-panel red-turn";
             } else {
-                statusDiv.textContent = aiThinking ? "AIが経路を計算中..." : "青の番";
+                statusDiv.textContent = aiThinking ? "AIが経路を計算中..." : "青の番です";
                 statusDiv.className = "glass-panel blue-turn";
             }
         }
@@ -456,12 +471,11 @@
         // 激辛AIロジック（ダイクストラ / 0-1 BFS 最短経路探索）
         // ==========================================
 
-        // 特定の境界線から各マスへの最短距離（必要な石の数）を計算
         function getDistances(player, border) {
             let dist = new Int32Array(BOARD_SIZE * BOARD_SIZE).fill(9999);
             let deque = [];
 
-            if (player === 1) { // Red (Top/Bottom)
+            if (player === 1) { 
                 if (border === 'TOP') {
                     for (let q = 0; q < BOARD_SIZE; q++) {
                         let st = board[q][0];
@@ -477,7 +491,7 @@
                         else if (st === 0) { dist[idx] = 1; deque.push({q, r: BOARD_SIZE - 1}); }
                     }
                 }
-            } else { // Blue (Left/Right)
+            } else { 
                 if (border === 'LEFT') {
                     for (let r = 0; r < BOARD_SIZE; r++) {
                         let st = board[0][r];
@@ -502,7 +516,7 @@
                 let neighbors = getNeighbors(q, r);
                 for (let n of neighbors) {
                     let st = board[n.q][n.r];
-                    if (st === (player === 1 ? 2 : 1)) continue; // 相手の石は通れない
+                    if (st === (player === 1 ? 2 : 1)) continue; 
                     
                     let cost = (st === player) ? 0 : 1;
                     let next_dist = d + cost;
@@ -510,7 +524,6 @@
                     
                     if (next_dist < dist[nIdx]) {
                         dist[nIdx] = next_dist;
-                        // 0-1 BFS: コスト0なら先頭に、コスト1なら末尾に追加
                         if (cost === 0) deque.unshift(n);
                         else deque.push(n);
                     }
@@ -522,7 +535,6 @@
         function aiMove() {
             if (gameOver) return;
 
-            // 各境界からの最短距離を計算
             let dist_T = getDistances(1, 'TOP');
             let dist_B = getDistances(1, 'BOTTOM');
             let dist_L = getDistances(2, 'LEFT');
@@ -536,31 +548,24 @@
                     if (board[q][r] === 0) {
                         let idx = q * BOARD_SIZE + r;
                         
-                        // このマスを経由して繋がるために必要な「残り石の数」
-                        // 自身も1マスとしてカウントされるため、-1して調整する
                         let cost_red = dist_T[idx] + dist_B[idx] - 1;
                         let cost_blue = dist_L[idx] + dist_R[idx] - 1;
 
                         let score = 0;
 
-                        // AIが勝てる場合は最優先
                         if (cost_blue === 1) {
                             score += 1000000; 
                         }
-                        // プレイヤーが勝てる場合は必ず阻止
                         else if (cost_red === 1) {
                             score += 500000;
                         } 
                         else {
-                            // 必要な石が少ない（＝繋がりやすい）マスほど指数関数的に高評価
-                            score += Math.pow(2, 12 - cost_blue) * 1.5; // オフェンス（自分が繋がる）
-                            score += Math.pow(2, 12 - cost_red) * 1.0;  // ディフェンス（相手を妨害）
+                            score += Math.pow(2, 12 - cost_blue) * 1.5; 
+                            score += Math.pow(2, 12 - cost_red) * 1.0;  
 
-                            // Hexの基本戦略：中央付近を少し有利に評価
                             score += (10 - (Math.abs(q - 5) + Math.abs(r - 5))) * 10;
                         }
 
-                        // 同点の場合に毎回同じ手順にならないよう、微小な乱数を加える
                         score += Math.random() * 5;
 
                         if (score > bestScore) {
@@ -573,7 +578,6 @@
                 }
             }
 
-            // 最もスコアの高い手の中からランダムに選択
             const move = bestMoves[Math.floor(Math.random() * bestMoves.length)];
             
             aiThinking = false;
